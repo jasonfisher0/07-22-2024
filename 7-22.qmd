@@ -9,48 +9,74 @@ execute:
 ```{r}
 #|label: setup
 suppressPackageStartupMessages({
-library(tidyverse)
-library(tidybayes)
-library(brms)
+  library(tidyverse)
+  library(tidybayes)
+  library(brms)
 })
+
+x <- read_csv("STAR.csv", show_col_types = FALSE)
 ```
 
+
 ```{r}
-x <- read_csv("STAR.csv", show_col_types = FALSE)
 x_filt <- x %>%
   filter(!is.na(hsgrad))
+
+# Recode classtype to kinder
+x_filt <- x_filt %>%
+  mutate(kinder = recode(classtype,
+                         `1` = "small",
+                         `2` = "regular",
+                         `3` = "regular with aid"),
+         kinder = factor(kinder))
+
+# Recode race and overwrite the original variable
+x_filt <- x_filt %>%
+  mutate(race = recode(race,
+                       `1` = "white",
+                       `2` = "black",
+                       `3` = "asian",
+                       `4` = "hispanic",
+                       `5` = "native american",
+                       `6` = "others"),
+         race = factor(race, levels = c("white", "black", "hispanic", "others")),
+         race = recode(race,
+                       "asian" = "others",
+                       "native american" = "others"))
+x_filt <- x_filt %>%
+  drop_na()
+x_filt <- x_filt |>
+  select(kinder, hsgrad, race) |>
+  filter(kinder != 'regular with aid')
+
+x_filt
 ```
 
 ```{r}
-model <- brm(
-  hsgrad ~ classtype,
-  data = x_filt,
-  family = gaussian(),
-  prior = c(prior(normal(0, 1), class = "Intercept"),
-            prior(normal(0, 1), class = "b")),
-  iter = 2000,
-  warmup = 1000,
-  chains = 4,
-  cores = 4,
-  refresh = 0,
-  silent = 2,
-  seed = 9
-)
-summary(model)
-plot(model)
+#|cache: true
+model <- brm(formula = hsgrad ~ kinder + race,
+         data = x_filt,
+         family = bernoulli(),
+         refresh = 0,
+         silent = 2,
+         seed = 9)
+model
 
-posterior_samples <- spread_draws(model, b_classtype_Intercept, b_classtype)
-posterior_samples %>%
-  gather(key = "parameter", value = "estimate", b_classtype1, b_classtype2) %>%
-  ggplot(aes(x = estimate, fill = parameter)) +
-  stat_halfeye() +
-  labs(title = "Posterior Distributions of Class Type Effect on HS Graduation Rate",
-       x = "Effect Estimate",
-       y = "Density")
+fixef(model)
 ```
 
-
-
+```{r}
+model %>%
+  spread_draws(b_Intercept, b_kindersmall, b_raceblack) %>%
+  gather_draws(b_Intercept, b_kindersmall, b_raceblack) %>%
+  ggplot(aes(x = .value, y = .variable)) +
+  geom_vline(xintercept = 0, color = "red") +
+  stat_halfeye() +
+  theme_minimal() +
+  labs(title = "Posterior Distributions of Model Coefficients",
+       x = "Coefficient Value",
+       y = "Variable")
+```
 
 
 
